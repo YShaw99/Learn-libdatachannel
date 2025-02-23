@@ -73,8 +73,16 @@ int main() {
 
 		std::cout << "RTP video stream expected on localhost:6000" << std::endl;
 		std::cout << "Please copy/paste the answer provided by the browser: " << std::endl;
-		std::string sdp;
-		std::getline(std::cin, sdp);
+		std::string sdp,temp;
+
+		do {
+			std::getline(std::cin, temp);  // 使用 getline 读取整行输入
+			sdp += temp;  // 将输入累加到 sdp
+			std::cout << "temp 输入为: " << temp << "\nsdp: " << sdp << std::endl;
+		} while (!temp.empty());  // 当输入为空时停止循环
+		// std::getline(std::cin, sdp);
+
+		std::cout << "接受answer 完成" << std::endl;
 
 		json j = json::parse(sdp);
 		rtc::Description answer(j["sdp"].get<std::string>(), j["type"].get<std::string>());

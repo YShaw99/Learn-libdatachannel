@@ -38,14 +38,17 @@ namespace rtc::impl {
 
 const int MAX_TURN_SERVERS_COUNT = 2;
 
+// 1. libjuice 初始化函数
 void IceTransport::Init() {
-	// Dummy
+	// 1.1 空实现，libjuice不需要特殊初始化
 }
 
+// 2. libjuice 清理函数
 void IceTransport::Cleanup() {
-	// Dummy
+	// 2.1 空实现，libjuice不需要清理操作
 }
 
+// 3. libjuice ICE传输构造函数
 IceTransport::IceTransport(const Configuration &config, candidate_callback candidateCallback,
                            state_callback stateChangeCallback,
                            gathering_state_callback gatheringStateChangeCallback)
@@ -57,6 +60,7 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 
 	PLOG_DEBUG << "Initializing ICE transport (libjuice)";
 
+	// 3.1 设置日志级别
 	juice_log_level_t level;
 	auto logger = plog::get();
 	switch (logger ? logger->getMaxSeverity() : plog::none) {
@@ -83,6 +87,7 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	juice_set_log_handler(IceTransport::LogCallback);
 	juice_set_log_level(level);
 
+	// 3.2 配置juice参数
 	juice_config_t jconfig = {};
 	jconfig.cb_state_changed = IceTransport::StateChangeCallback;
 	jconfig.cb_candidate = IceTransport::CandidateCallback;
@@ -90,10 +95,12 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 	jconfig.cb_recv = IceTransport::RecvCallback;
 	jconfig.user_ptr = this;
 
+	// 3.3 处理ICE-TCP警告
 	if (config.enableIceTcp) {
 		PLOG_WARNING << "ICE-TCP is not supported with libjuice";
 	}
 
+	// 3.4 配置UDP多路复用
 	if (config.enableIceUdpMux) {
 		PLOG_DEBUG << "Enabling ICE UDP mux";
 		jconfig.concurrency_mode = JUICE_CONCURRENCY_MODE_MUX;
@@ -101,11 +108,11 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 		jconfig.concurrency_mode = JUICE_CONCURRENCY_MODE_POLL;
 	}
 
-	// Randomize servers order
+	// 3.5 随机化ICE服务器顺序
 	std::vector<IceServer> servers = config.iceServers;
 	std::shuffle(servers.begin(), servers.end(), utils::random_engine());
 
-	// Pick a STUN server
+	// 3.6 选择STUN服务器
 	for (auto &server : servers) {
 		if (!server.hostname.empty() && server.type == IceServer::Type::Stun) {
 			if (server.port == 0)
@@ -117,52 +124,59 @@ IceTransport::IceTransport(const Configuration &config, candidate_callback candi
 		}
 	}
 
-	// Bind address
+	// 3.7 绑定地址
 	if (config.bindAddress) {
 		jconfig.bind_address = config.bindAddress->c_str();
 	}
 
-	// Port range
+	// 3.8 配置端口范围
 	if (config.portRangeBegin > 1024 ||
 	    (config.portRangeEnd != 0 && config.portRangeEnd != 65535)) {
 		jconfig.local_port_range_begin = config.portRangeBegin;
 		jconfig.local_port_range_end = config.portRangeEnd;
 	}
 
-	// Create agent
+	// 3.9 创建juice agent
 	mAgent = decltype(mAgent)(juice_create(&jconfig), juice_destroy);
 	if (!mAgent)
 		throw std::runtime_error("Failed to create the ICE agent");
 
-	// Add TURN servers
+	// 3.10 添加TURN服务器
 	for (const auto &server : servers)
 		if (!server.hostname.empty() && server.type != IceServer::Type::Stun)
 			addIceServer(server);
 }
 
+// 4. 设置ICE属性
 void IceTransport::setIceAttributes(string uFrag, string pwd) {
 	if (juice_set_local_ice_attributes(mAgent.get(), uFrag.c_str(), pwd.c_str()) < 0) {
 		throw std::invalid_argument("Invalid ICE attributes");
 	}
 }
 
+// 5. 添加TURN服务器实现
 void IceTransport::addIceServer(IceServer server) {
+	// 5.1 参数校验
 	if (server.hostname.empty())
 		return;
 
+	// 5.2 类型检查
 	if (server.type != IceServer::Type::Turn) {
 		PLOG_WARNING << "Only TURN servers are supported as additional ICE servers";
 		return;
 	}
 
+	// 5.3 传输协议检查
 	if (server.relayType != IceServer::RelayType::TurnUdp) {
 		PLOG_WARNING << "TURN transports TCP and TLS are not supported with libjuice";
 		return;
 	}
 
+	// 5.4 检查TURN服务器数量限制
 	if (mTurnServersAdded >= MAX_TURN_SERVERS_COUNT)
 		return;
 
+	// 5.5 设置默认端口
 	if (server.port == 0)
 		server.port = 3478; // TURN UDP port
 
@@ -173,49 +187,48 @@ void IceTransport::addIceServer(IceServer server) {
 	turn_server.password = server.password.c_str();
 	turn_server.port = server.port;
 
+	// 5.6 添加TURN服务器
 	if (juice_add_turn_server(mAgent.get(), &turn_server) != 0)
 		throw std::runtime_error("Failed to add TURN server");
 
 	++mTurnServersAdded;
 }
 
+// 6. 析构函数
 IceTransport::~IceTransport() {
 	PLOG_DEBUG << "Destroying ICE transport";
 	mAgent.reset();
 }
 
+// 7. 获取当前角色
 Description::Role IceTransport::role() const { return mRole; }
 
+// 8. 生成本地SDP描述
 Description IceTransport::getLocalDescription(Description::Type type) const {
 	char sdp[JUICE_MAX_SDP_STRING_LEN];
 	if (juice_get_local_description(mAgent.get(), sdp, JUICE_MAX_SDP_STRING_LEN) < 0)
 		throw std::runtime_error("Failed to generate local SDP");
 
-	// RFC 5763: The endpoint that is the offerer MUST use the setup attribute value of
-	// setup:actpass.
-	// See https://www.rfc-editor.org/rfc/rfc5763.html#section-5
+	// 8.1 根据RFC 5763设置角色
 	Description desc(string(sdp), type,
 	                 type == Description::Type::Offer ? Description::Role::ActPass : mRole);
 	desc.addIceOption("trickle");
 	return desc;
 }
 
+// 9. 设置远端描述
 void IceTransport::setRemoteDescription(const Description &description) {
-	// RFC 5763: The answerer MUST use either a setup attribute value of setup:active or
-	// setup:passive.
-	// See https://www.rfc-editor.org/rfc/rfc5763.html#section-5
+	// 9.1 检查角色合法性
 	if (description.type() == Description::Type::Answer &&
 	    description.role() == Description::Role::ActPass)
 		throw std::invalid_argument("Illegal role actpass in remote answer description");
 
-	// RFC 5763: Note that if the answerer uses setup:passive, then the DTLS handshake
-	// will not begin until the answerer is received, which adds additional latency.
-	// setup:active allows the answer and the DTLS handshake to occur in parallel. Thus,
-	// setup:active is RECOMMENDED.
+	// 9.2 更新本地角色
 	if (mRole == Description::Role::ActPass)
 		mRole = description.role() == Description::Role::Active ? Description::Role::Passive
 		                                                        : Description::Role::Active;
 
+	// 9.3 检查角色冲突
 	if (mRole == description.role())
 		throw std::invalid_argument("Incompatible roles with remote description");
 
@@ -225,29 +238,35 @@ void IceTransport::setRemoteDescription(const Description &description) {
 		throw std::invalid_argument("Invalid ICE settings from remote SDP");
 }
 
+// 10. 添加远端候选
 bool IceTransport::addRemoteCandidate(const Candidate &candidate) {
-	// Don't try to pass unresolved candidates for more safety
+	// 10.1 检查候选是否已解析
 	if (!candidate.isResolved())
 		return false;
 
+	// 10.2 添加候选到juice
 	return juice_add_remote_candidate(mAgent.get(), string(candidate).c_str()) >= 0;
 }
 
+// 11. 收集本地候选
 void IceTransport::gatherLocalCandidates(string mid, std::vector<IceServer> additionalIceServers) {
 	mMid = std::move(mid);
 
+	// 11.1 随机化附加ICE服务器顺序
 	std::shuffle(additionalIceServers.begin(), additionalIceServers.end(), utils::random_engine());
 	for (const auto &server : additionalIceServers)
 		addIceServer(server);
 
-	// Change state now as candidates calls can be synchronous
+	// 11.2 更新收集状态
 	changeGatheringState(GatheringState::InProgress);
 
+	// 11.3 开始收集候选
 	if (juice_gather_candidates(mAgent.get()) < 0) {
 		throw std::runtime_error("Failed to gather local ICE candidates");
 	}
 }
 
+// 12. 获取本地地址
 optional<string> IceTransport::getLocalAddress() const {
 	char str[JUICE_MAX_ADDRESS_STRING_LEN];
 	if (juice_get_selected_addresses(mAgent.get(), str, JUICE_MAX_ADDRESS_STRING_LEN, NULL, 0) ==
@@ -256,6 +275,8 @@ optional<string> IceTransport::getLocalAddress() const {
 	}
 	return nullopt;
 }
+
+// 13. 获取远端地址
 optional<string> IceTransport::getRemoteAddress() const {
 	char str[JUICE_MAX_ADDRESS_STRING_LEN];
 	if (juice_get_selected_addresses(mAgent.get(), NULL, 0, str, JUICE_MAX_ADDRESS_STRING_LEN) ==
@@ -265,6 +286,7 @@ optional<string> IceTransport::getRemoteAddress() const {
 	return nullopt;
 }
 
+// 14. 获取选中的候选对
 bool IceTransport::getSelectedCandidatePair(Candidate *local, Candidate *remote) {
 	char sdpLocal[JUICE_MAX_CANDIDATE_SDP_STRING_LEN];
 	char sdpRemote[JUICE_MAX_CANDIDATE_SDP_STRING_LEN];
@@ -283,6 +305,7 @@ bool IceTransport::getSelectedCandidatePair(Candidate *local, Candidate *remote)
 	return false;
 }
 
+// 15. 发送消息
 bool IceTransport::send(message_ptr message) {
 	auto s = state();
 	if (!message || (s != State::Connected && s != State::Completed))
@@ -292,18 +315,21 @@ bool IceTransport::send(message_ptr message) {
 	return outgoing(message);
 }
 
+// 16. 实际发送消息实现
 bool IceTransport::outgoing(message_ptr message) {
-	// Explicit Congestion Notification takes the least-significant 2 bits of the DS field
+	// 16.1 设置DSCP值
 	int ds = int(message->dscp << 2);
 	return juice_send_diffserv(mAgent.get(), reinterpret_cast<const char *>(message->data()),
 	                           message->size(), ds) >= 0;
 }
 
+// 17. 更新候选收集状态
 void IceTransport::changeGatheringState(GatheringState state) {
 	if (mGatheringState.exchange(state) != state)
 		mGatheringStateChangeCallback(mGatheringState);
 }
 
+// 18. 处理状态变更
 void IceTransport::processStateChange(unsigned int state) {
 	switch (state) {
 	case JUICE_STATE_DISCONNECTED:
@@ -324,12 +350,15 @@ void IceTransport::processStateChange(unsigned int state) {
 	};
 }
 
+// 19. 处理候选
 void IceTransport::processCandidate(const string &candidate) {
 	mCandidateCallback(Candidate(candidate, mMid));
 }
 
+// 20. 处理候选收集完成
 void IceTransport::processGatheringDone() { changeGatheringState(GatheringState::Complete); }
 
+// 21. 状态变更回调
 void IceTransport::StateChangeCallback(juice_agent_t *, juice_state_t state, void *user_ptr) {
 	auto iceTransport = static_cast<rtc::impl::IceTransport *>(user_ptr);
 	try {
@@ -339,6 +368,7 @@ void IceTransport::StateChangeCallback(juice_agent_t *, juice_state_t state, voi
 	}
 }
 
+// 22. 候选回调
 void IceTransport::CandidateCallback(juice_agent_t *, const char *sdp, void *user_ptr) {
 	auto iceTransport = static_cast<rtc::impl::IceTransport *>(user_ptr);
 	try {
@@ -348,6 +378,7 @@ void IceTransport::CandidateCallback(juice_agent_t *, const char *sdp, void *use
 	}
 }
 
+// 23. 候选收集完成回调
 void IceTransport::GatheringDoneCallback(juice_agent_t *, void *user_ptr) {
 	auto iceTransport = static_cast<rtc::impl::IceTransport *>(user_ptr);
 	try {
@@ -357,6 +388,7 @@ void IceTransport::GatheringDoneCallback(juice_agent_t *, void *user_ptr) {
 	}
 }
 
+// 24. 接收数据回调
 void IceTransport::RecvCallback(juice_agent_t *, const char *data, size_t size, void *user_ptr) {
 	auto iceTransport = static_cast<rtc::impl::IceTransport *>(user_ptr);
 	try {
@@ -368,6 +400,7 @@ void IceTransport::RecvCallback(juice_agent_t *, const char *data, size_t size, 
 	}
 }
 
+// 25. 日志回调
 void IceTransport::LogCallback(juice_log_level_t level, const char *message) {
 	plog::Severity severity;
 	switch (level) {

@@ -45,13 +45,17 @@ int main(int argc, char **argv) {
 	pc->onGatheringStateChange([](rtc::PeerConnection::GatheringState state) {
 		std::cout << "[Gathering State: " << state << "]" << std::endl;
 	});
-
+//xy:创建
 	auto dc = pc->createDataChannel("test"); // this is the offerer, so create a data channel
 
-	dc->onOpen([&]() { std::cout << "[DataChannel open: " << dc->label() << "]" << std::endl; });
+	dc->onOpen([&]() {
+		std::cout << "[DataChannel open: " << dc->label() << "]" << std::endl;
+	});
 
 	dc->onClosed(
-	    [&]() { std::cout << "[DataChannel closed: " << dc->label() << "]" << std::endl; });
+	    [&]() {
+		    std::cout << "[DataChannel closed: " << dc->label() << "]" << std::endl;
+	    });
 
 	dc->onMessage([](auto data) {
 		if (std::holds_alternative<std::string>(data)) {
