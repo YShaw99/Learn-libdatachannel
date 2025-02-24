@@ -85,67 +85,71 @@ private:
 std::unique_ptr<SctpTransport::InstancesSet> SctpTransport::Instances = std::make_unique<InstancesSet>();
 
 void SctpTransport::Init() {
+    // 初始化 SCTP 库
+    // 第一个参数 0 表示不使用特定端口，第二个和第三个参数分别为写回调和调试回调函数
 	usrsctp_init(0, SctpTransport::WriteCallback, SctpTransport::DebugCallback);
+	// 开启部分可靠性扩展（Partial Reliability Extension, RFC 3758），允许部分重传
 	usrsctp_sysctl_set_sctp_pr_enable(1);  // Enable Partial Reliability Extension (RFC 3758)
+	// 禁用 ECN (Explicit Congestion Notification)
 	usrsctp_sysctl_set_sctp_ecn_enable(0); // Disable Explicit Congestion Notification
 #ifndef SCTP_ACCEPT_ZERO_CHECKSUM
+	// 如果不支持 SCTP_ACCEPT_ZERO_CHECKSUM，则启用 CRC32c offload，仅对外发包计算 CRC32 校验和
 	usrsctp_enable_crc32c_offload(); // We'll compute CRC32 only for outgoing packets
 #endif
 #ifdef SCTP_DEBUG
+	// 如果启用了 SCTP_DEBUG 宏，则开启 SCTP 全部调试信息
 	usrsctp_sysctl_set_sctp_debug_on(SCTP_DEBUG_ALL);
 #endif
 }
 
 void SctpTransport::SetSettings(const SctpSettings &s) {
-	// The send and receive window size of usrsctp is 256KiB, which is too small for realistic RTTs,
-	// therefore we increase it to 1MiB by default for better performance.
-	// See https://bugzilla.mozilla.org/show_bug.cgi?id=1051685
+	// 修改 SCTP 发送和接收窗口大小，默认增加到 1MiB，以适应较长的 RTT
+	// 参见 https://bugzilla.mozilla.org/show_bug.cgi?id=1051685
 	usrsctp_sysctl_set_sctp_recvspace(to_uint32(s.recvBufferSize.value_or(1024 * 1024)));
 	usrsctp_sysctl_set_sctp_sendspace(to_uint32(s.sendBufferSize.value_or(1024 * 1024)));
 
-	// Increase maximum chunks number on queue to 10K by default
+	// 将队列中最大 chunk 数量增加到 10K
 	usrsctp_sysctl_set_sctp_max_chunks_on_queue(to_uint32(s.maxChunksOnQueue.value_or(10 * 1024)));
 
-	// Increase initial congestion window size to 10 MTUs (RFC 6928) by default
+	// 增加初始拥塞窗口大小到 10 个 MTU（参照 RFC 6928），提升初始发送性能
 	usrsctp_sysctl_set_sctp_initial_cwnd(to_uint32(s.initialCongestionWindow.value_or(10)));
 
-	// Set max burst to 10 MTUs by default (max burst is initially 0, meaning disabled)
+	// 设置最大突发发送数为 10 个 MTU（默认 0 表示禁用）
 	usrsctp_sysctl_set_sctp_max_burst_default(to_uint32(s.maxBurst.value_or(10)));
 
-	// Use standard SCTP congestion control (RFC 4960) by default
-	// See https://github.com/paullouisageneau/libdatachannel/issues/354
+	// 选择标准的 SCTP 拥塞控制算法（RFC 4960）
+	// 参见 https://github.com/paullouisageneau/libdatachannel/issues/354
 	usrsctp_sysctl_set_sctp_default_cc_module(to_uint32(s.congestionControlModule.value_or(0)));
 
-	// Reduce SACK delay to 20ms by default (the recommended default value from RFC 4960 is 200ms)
+	// 将 SACK 延迟时间缩短到 20ms（RFC 4960 推荐值为 200ms）
 	usrsctp_sysctl_set_sctp_delayed_sack_time_default(
 	    to_uint32(s.delayedSackTime.value_or(20ms).count()));
 
-	// RTO settings
-	// RFC 2988 recommends a 1s min RTO, which is very high, but TCP on Linux has a 200ms min RTO
+	// RTO（重传超时）设置：最小值设为 200ms，比 RFC 2988 推荐的 1s 小，但 Linux 默认为 200ms
 	usrsctp_sysctl_set_sctp_rto_min_default(
 	    to_uint32(s.minRetransmitTimeout.value_or(200ms).count()));
-	// Set only 10s as max RTO instead of 60s for shorter connection timeout
+	// 将最大 RTO 设置为 10s（而非 60s），缩短连接超时时间
 	usrsctp_sysctl_set_sctp_rto_max_default(
 	    to_uint32(s.maxRetransmitTimeout.value_or(10000ms).count()));
 	usrsctp_sysctl_set_sctp_init_rto_max_default(
 	    to_uint32(s.maxRetransmitTimeout.value_or(10000ms).count()));
-	// Still set 1s as initial RTO
+	// 初始 RTO 仍设为 1s
 	usrsctp_sysctl_set_sctp_rto_initial_default(
 	    to_uint32(s.initialRetransmitTimeout.value_or(1000ms).count()));
 
-	// RTX settings
-	// 5 retransmissions instead of 8 to shorten the backoff for shorter connection timeout
+	// RTX 设置：最大重传次数设为 5 次（比默认 8 次少，以缩短超时）
 	auto maxRtx = to_uint32(s.maxRetransmitAttempts.value_or(5));
 	usrsctp_sysctl_set_sctp_init_rtx_max_default(maxRtx);
 	usrsctp_sysctl_set_sctp_assoc_rtx_max_default(maxRtx);
-	usrsctp_sysctl_set_sctp_path_rtx_max_default(maxRtx); // single path
+	usrsctp_sysctl_set_sctp_path_rtx_max_default(maxRtx); // 针对单路径
 
-	// Heartbeat interval
+	// 设置心跳间隔，默认 10 秒
 	usrsctp_sysctl_set_sctp_heartbeat_interval_default(
-	    to_uint32(s.heartbeatInterval.value_or(10000ms).count()));
+	    to_uint32(s.heartbeatInterval.value_or(100000ms).count()));
 }
 
 void SctpTransport::Cleanup() {
+	// 清理 SCTP 库资源，循环调用 usrsctp_finish 直到返回 0，然后休眠 100ms
 	while (usrsctp_finish())
 		std::this_thread::sleep_for(100ms);
 }
@@ -157,20 +161,24 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
       mMaxMessageSize(config.maxMessageSize.value_or(DEFAULT_LOCAL_MAX_MESSAGE_SIZE)),
       mPorts(std::move(ports)), mSendQueue(0, message_size_func),
       mBufferedAmountCallback(std::move(bufferedAmountCallback)) {
+	// 设置接收回调
 	onRecv(std::move(recvCallback));
 
 	PLOG_DEBUG << "Initializing SCTP transport";
 
+	// 创建 SCTP socket
 	mSock = usrsctp_socket(AF_CONN, SOCK_STREAM, IPPROTO_SCTP, nullptr, nullptr, 0, nullptr);
 	if (!mSock)
 		throw std::runtime_error("Could not create SCTP socket, errno=" + std::to_string(errno));
 
+	// 设置 socket 的 upcall 回调，用于异步事件通知
 	usrsctp_set_upcall(mSock, &SctpTransport::UpcallCallback, this);
 
+	// 将 socket 设置为非阻塞模式
 	if (usrsctp_set_non_blocking(mSock, 1))
 		throw std::runtime_error("Unable to set non-blocking mode, errno=" + std::to_string(errno));
 
-	// SCTP must stop sending after the lower layer is shut down, so disable linger
+	// 设置 SO_LINGER 为 0，确保底层关闭时不阻塞发送数据
 	struct linger sol = {};
 	sol.l_onoff = 1;
 	sol.l_linger = 0;
@@ -178,6 +186,7 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not set socket option SO_LINGER, errno=" +
 		                         std::to_string(errno));
 
+	// 启用 SCTP 流重置功能，允许在 SCTP 连接中重置流
 	struct sctp_assoc_value av = {};
 	av.assoc_id = SCTP_ALL_ASSOC;
 	av.assoc_value = 1;
@@ -185,10 +194,12 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not set socket option SCTP_ENABLE_STREAM_RESET, errno=" +
 		                         std::to_string(errno));
 	int on = 1;
+	// 允许接收 SCTP 传输信息（如 stream id、ppid 等）
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_RECVRCVINFO, &on, sizeof(on)))
 		throw std::runtime_error("Could set socket option SCTP_RECVRCVINFO, errno=" +
 		                         std::to_string(errno));
 
+	// 订阅 SCTP 事件，如 association change、sender dry、stream reset
 	struct sctp_event se = {};
 	se.se_assoc_id = SCTP_ALL_ASSOC;
 	se.se_on = 1;
@@ -205,40 +216,30 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not subscribe to event SCTP_STREAM_RESET_EVENT, errno=" +
 		                         std::to_string(errno));
 
-	// RFC 8831 6.6. Transferring User Data on a Data Channel
-	// The sender SHOULD disable the Nagle algorithm (see [RFC1122) to minimize the latency
-	// See https://www.rfc-editor.org/rfc/rfc8831.html#section-6.6
+	// RFC 8831 6.6 建议禁用 Nagle 算法以降低延迟
 	int nodelay = 1;
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_NODELAY, &nodelay, sizeof(nodelay)))
 		throw std::runtime_error("Could not set socket option SCTP_NODELAY, errno=" +
 		                         std::to_string(errno));
 
+	// 配置 SCTP 对等地址参数（paddr params），开启心跳检测
 	struct sctp_paddrparams spp = {};
-	// Enable SCTP heartbeats
 	spp.spp_flags = SPP_HB_ENABLE;
 
-	// RFC 8261 5. DTLS considerations:
-	// If path MTU discovery is performed by the SCTP layer and IPv4 is used as the network-layer
-	// protocol, the DTLS implementation SHOULD allow the DTLS user to enforce that the
-	// corresponding IPv4 packet is sent with the Don't Fragment (DF) bit set. If controlling the DF
-	// bit is not possible (for example, due to implementation restrictions), a safe value for the
-	// path MTU has to be used by the SCTP stack. It is RECOMMENDED that the safe value not exceed
-	// 1200 bytes.
-	// See https://www.rfc-editor.org/rfc/rfc8261.html#section-5
+	// RFC 8261 关于 DTLS 的考虑：如果 SCTP 执行 PMTUD 并使用 IPv4，建议使用 DF 位，若不支持则设置安全 MTU
 #if USE_PMTUD
 	if (!config.mtu.has_value()) {
 #else
 	if (false) {
 #endif
-		// Enable SCTP path MTU discovery
+		// 启用 SCTP 路径 MTU 发现
 		spp.spp_flags |= SPP_PMTUD_ENABLE;
 		PLOG_VERBOSE << "Path MTU discovery enabled";
 
 	} else {
-		// Fall back to a safe MTU value.
+		// 禁用 SCTP PMTUD，使用安全的 MTU 值
 		spp.spp_flags |= SPP_PMTUD_DISABLE;
-		// The MTU value provided specifies the space available for chunks in the
-		// packet, so we also subtract the SCTP header size.
+		// 计算安全 MTU：从给定 MTU 中扣除 SCTP/DTLS/UDP/IPv6 头部的开销
 		size_t pmtu = config.mtu.value_or(DEFAULT_MTU) - 12 - 48 - 8 - 40; // SCTP/DTLS/UDP/IPv6
 		spp.spp_pathmtu = to_uint32(pmtu);
 		PLOG_VERBOSE << "Path MTU discovery disabled, SCTP MTU set to " << pmtu;
@@ -248,13 +249,8 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not set socket option SCTP_PEER_ADDR_PARAMS, errno=" +
 		                         std::to_string(errno));
 
-	// RFC 8831 6.2. SCTP Association Management
-	// The number of streams negotiated during SCTP association setup SHOULD be 65535, which is the
-	// maximum number of streams that can be negotiated during the association setup.
-	// See https://www.rfc-editor.org/rfc/rfc8831.html#section-6.2
-	// However, usrsctp allocates tables to hold the stream states. For 65535 streams, it results in
-	// the waste of a few MBs for each association. Therefore, we use a lower limit to save memory.
-	// See https://github.com/sctplab/usrsctp/issues/121
+	// SCTP 关联管理
+	// RFC 8831 建议 SCTP 协议协商时支持最多 65535 个流，但为了节省内存，使用较低的数量
 	struct sctp_initmsg sinit = {};
 	sinit.sinit_num_ostreams = MAX_SCTP_STREAMS_COUNT;
 	sinit.sinit_max_instreams = MAX_SCTP_STREAMS_COUNT;
@@ -262,24 +258,21 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not set socket option SCTP_INITMSG, errno=" +
 		                         std::to_string(errno));
 
-	// Prevent fragmented interleave of messages (i.e. level 0), see RFC 6458 section 8.1.20.
-	// Unless the user has set the fragmentation interleave level to 0, notifications
-	// may also be interleaved with partially delivered messages.
+	// 禁用 SCTP fragmented interleave（避免消息片段交叉），见 RFC 6458
 	int level = 0;
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_FRAGMENT_INTERLEAVE, &level, sizeof(level)))
 		throw std::runtime_error("Could not disable SCTP fragmented interleave, errno=" +
 		                         std::to_string(errno));
 
 #ifdef SCTP_ACCEPT_ZERO_CHECKSUM // not available in usrsctp v0.9.5.0
-	// When using SCTP over DTLS, the data integrity is ensured by DTLS. Therefore, there's no
-	// need to check CRC32c additionally when receiving. See
-	// https://datatracker.ietf.org/doc/html/draft-ietf-tsvwg-sctp-zero-checksum
+	// 如果 SCTP 在 DTLS 下运行，数据完整性由 DTLS 保证，不需要额外检查 CRC32c
 	int edmid = SCTP_EDMID_LOWER_LAYER_DTLS;
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_ACCEPT_ZERO_CHECKSUM, &edmid, sizeof(edmid)))
 		throw std::runtime_error("Could set socket option SCTP_ACCEPT_ZERO_CHECKSUM, errno=" +
 		                         std::to_string(errno));
 #endif
 
+	// 获取并设置 SCTP 收发缓冲区大小，确保能够容纳最大消息
 	int rcvBuf = 0;
 	socklen_t rcvBufLen = sizeof(rcvBuf);
 	if (usrsctp_getsockopt(mSock, SOL_SOCKET, SO_RCVBUF, &rcvBuf, &rcvBufLen))
@@ -291,7 +284,7 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not get SCTP send buffer size, errno=" +
 		                         std::to_string(errno));
 
-	// Ensure the buffer is also large enough to accomodate the largest messages
+	// 确保缓冲区大小至少能容纳最大消息
 	const int minBuf = int(std::min(mMaxMessageSize, size_t(std::numeric_limits<int>::max())));
 	rcvBuf = std::max(rcvBuf, minBuf);
 	sndBuf = std::max(sndBuf, minBuf);
@@ -304,6 +297,7 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 		throw std::runtime_error("Could not set SCTP send buffer size, errno=" +
 		                         std::to_string(errno));
 
+	// 注册地址以便 usrsctp 内部管理，加入实例集合
 	usrsctp_register_address(this);
 	Instances->insert(this);
 }
@@ -311,26 +305,30 @@ SctpTransport::SctpTransport(shared_ptr<Transport> lower, const Configuration &c
 SctpTransport::~SctpTransport() {
 	PLOG_DEBUG << "Destroying SCTP transport";
 
+	// 等待处理线程结束
 	mProcessor.join(); // if we are here, the processor must be empty
 
-	// Before unregistering incoming() from the lower layer, we need to make sure the thread from
-	// lower layers is not blocked in incoming() by the WrittenOnce condition.
+	// 在注销 incoming 回调之前，确保下层线程不会被 mWrittenOnce 阻塞
 	mWrittenOnce = true;
 	mWrittenCondition.notify_all();
 
 	unregisterIncoming();
 
+	// 关闭 SCTP socket
 	usrsctp_close(mSock);
 
+	// 注销地址，移除实例集合中的本对象
 	usrsctp_deregister_address(this);
 	Instances->erase(this);
 }
 
 void SctpTransport::onBufferedAmount(amount_callback callback) {
+	// 设置缓冲量回调函数
 	mBufferedAmountCallback = std::move(callback);
 }
 
 void SctpTransport::start() {
+	// 启动 SCTP 传输：注册 incoming 回调后发起连接
 	registerIncoming();
 	connect();
 }
@@ -338,6 +336,7 @@ void SctpTransport::start() {
 void SctpTransport::stop() { close(); }
 
 struct sockaddr_conn SctpTransport::getSockAddrConn(uint16_t port) {
+	// 构造一个 sockaddr_conn 结构体，用于 SCTP 连接，port 为网络字节序
 	struct sockaddr_conn sconn = {};
 	sconn.sconn_family = AF_CONN;
 	sconn.sconn_port = htons(port);
@@ -349,40 +348,45 @@ struct sockaddr_conn SctpTransport::getSockAddrConn(uint16_t port) {
 }
 
 void SctpTransport::connect() {
+	// 开始 SCTP 连接过程，打印本地和远端端口
 	PLOG_DEBUG << "SCTP connecting (local port=" << mPorts.local
 	           << ", remote port=" << mPorts.remote << ")";
 	changeState(State::Connecting);
 
+	// 绑定本地 SCTP 地址
 	auto local = getSockAddrConn(mPorts.local);
 	if (usrsctp_bind(mSock, reinterpret_cast<struct sockaddr *>(&local), sizeof(local)))
 		throw std::runtime_error("Could not bind usrsctp socket, errno=" + std::to_string(errno));
 
-	// According to RFC 8841, both endpoints must initiate the SCTP association, in a
-	// simultaneous-open manner, irrelevent to the SDP setup role.
-	// See https://www.rfc-editor.org/rfc/rfc8841.html#section-9.3
+	// 同时发起 SCTP 连接（simultaneous open），双方均需调用 connect()
 	auto remote = getSockAddrConn(mPorts.remote);
 	int ret = usrsctp_connect(mSock, reinterpret_cast<struct sockaddr *>(&remote), sizeof(remote));
+	// EINPROGRESS 表示非阻塞连接正在进行中
 	if (ret && errno != EINPROGRESS)
 		throw std::runtime_error("Connection attempt failed, errno=" + std::to_string(errno));
 }
 
 bool SctpTransport::send(message_ptr message) {
+	// 加锁保护发送队列
 	std::lock_guard lock(mSendMutex);
 	if (state() != State::Connected)
 		return false;
 
+	// 如果 message 为空，则尝试发送队列中的消息
 	if (!message)
 		return trySendQueue();
 
 	PLOG_VERBOSE << "Send size=" << message->size();
 
+	// 检查消息大小是否超过最大限制
 	if (message->size() > mMaxMessageSize)
 		throw std::invalid_argument("Message is too large");
 
-	// Flush the queue, and if nothing is pending, try to send directly
+	// 尝试先发送队列中的消息，如果队列为空，则直接发送当前 message
 	if (trySendQueue() && trySendMessage(message))
 		return true;
 
+	// 否则将消息加入发送队列，并更新缓冲量
 	mSendQueue.push(message);
 	updateBufferedAmount(to_uint16(message->stream), ptrdiff_t(message_size_func(message)));
 	return false;
@@ -406,21 +410,22 @@ bool SctpTransport::flush() {
 void SctpTransport::closeStream(unsigned int stream) {
 	std::lock_guard lock(mSendMutex);
 
-	// RFC 8831 6.7. Closing a Data Channel
-	// Closing of a data channel MUST be signaled by resetting the corresponding outgoing streams
-	// See https://www.rfc-editor.org/rfc/rfc8831.html#section-6.7
+	// 根据 RFC 8831 6.7 关闭 Data Channel，发送 Reset 消息
 	mSendQueue.push(make_message(0, Message::Reset, to_uint16(stream)));
 
-	// This method must not call the buffered callback synchronously
+	// 异步刷新发送队列，确保 Reset 消息能及时发送
 	mProcessor.enqueue(&SctpTransport::flush, shared_from_this());
 }
 
 void SctpTransport::close() {
+	// 停止发送队列
 	mSendQueue.stop();
 	if (state() == State::Connected) {
+		// 如果处于连接状态，则异步刷新队列
 		mProcessor.enqueue(&SctpTransport::flush, shared_from_this());
 	} else if (state() == State::Connecting) {
 		PLOG_DEBUG << "SCTP early shutdown";
+		// 如果正在连接，则立即关闭 SCTP socket
 		if (usrsctp_shutdown(mSock, SHUT_RDWR)) {
 			if (errno == ENOTCONN) {
 				PLOG_VERBOSE << "SCTP already shut down";
@@ -434,15 +439,14 @@ void SctpTransport::close() {
 }
 
 unsigned int SctpTransport::maxStream() const {
+	// 返回协商后最大可用的 stream 数量（减去 1）
 	unsigned int streamsCount = mNegotiatedStreamsCount.value_or(MAX_SCTP_STREAMS_COUNT);
 	return streamsCount > 0 ? streamsCount - 1 : 0;
 }
 
 void SctpTransport::incoming(message_ptr message) {
-	// There could be a race condition here where we receive the remote INIT before the local one is
-	// sent, which would result in the connection being aborted. Therefore, we need to wait for data
-	// to be sent on our side (i.e. the local INIT) before proceeding.
-	if (!mWrittenOnce) { // test the atomic boolean is not set first to prevent a lock contention
+	// 处理接收到的消息。为了避免远端 INIT 在本地 INIT 之前到达，等待本地数据发送（mWrittenOnce）后再处理
+	if (!mWrittenOnce) { // 首先测试原子布尔值，防止锁竞争
 		std::unique_lock lock(mWriteMutex);
 		mWrittenCondition.wait(lock, [&]() { return mWrittenOnce || state() == State::Failed; });
 	}
@@ -459,13 +463,14 @@ void SctpTransport::incoming(message_ptr message) {
 
 	PLOG_VERBOSE << "Incoming size=" << message->size();
 
+	// 将接收到的数据传递给 usrsctp 的输入接口进行处理
 	usrsctp_conninput(this, message->data(), message->size(), 0);
 }
 
 bool SctpTransport::outgoing(message_ptr message) {
-	// Set recommended medium-priority DSCP value
-	// See https://www.rfc-editor.org/rfc/rfc8837.html#section-5
+	// 设置推荐的中等优先级 DSCP 值（AF11）以降低丢包率，参见 RFC 8837
 	message->dscp = 10; // AF11: Assured Forwarding class 1, low drop probability
+	// 调用基类 Transport 的 outgoing 方法发送消息
 	return Transport::outgoing(std::move(message));
 }
 
@@ -473,6 +478,7 @@ void SctpTransport::doRecv() {
 	std::lock_guard lock(mRecvMutex);
 	--mPendingRecvCount;
 	try {
+		// 循环接收数据，直到状态变为 Disconnected 或 Failed
 		while (state() != State::Disconnected && state() != State::Failed) {
 			const size_t bufferSize = 65536;
 			byte buffer[bufferSize];
@@ -481,9 +487,11 @@ void SctpTransport::doRecv() {
 			socklen_t infolen = sizeof(info);
 			unsigned int infotype = 0;
 			int flags = 0;
+			// 使用 usrsctp_recvv 接收数据及相关 SCTP 接收信息
 			ssize_t len = usrsctp_recvv(mSock, buffer, bufferSize, nullptr, &fromlen, &info,
 			                            &infolen, &infotype, &flags);
 			if (len < 0) {
+				// 如果遇到 EWOULDBLOCK/EAGAIN/ECONNRESET 则跳出循环
 				if (errno == EWOULDBLOCK || errno == EAGAIN || errno == ECONNRESET)
 					break;
 				else
@@ -494,14 +502,13 @@ void SctpTransport::doRecv() {
 
 			PLOG_VERBOSE << "SCTP recv, len=" << len;
 
-			// SCTP_FRAGMENT_INTERLEAVE does not seem to work as expected for messages > 64KB,
-			// therefore partial notifications and messages need to be handled separately.
+			// 对于大于 64KB 的消息，SCTP_FRAGMENT_INTERLEAVE 可能无法正常工作，因此需要分别处理通知和消息
 			if (flags & MSG_NOTIFICATION) {
-				// SCTP event notification
+				// SCTP 事件通知处理
 				mPartialNotification.insert(mPartialNotification.end(), buffer, buffer + len);
 
 				if (flags & MSG_EOR) {
-					// Notification is complete, process it
+					// 如果接收完毕，将部分通知数据交换到 notification 中并调用 processNotification 处理
 					binary notification;
 					mPartialNotification.swap(notification);
 					auto n = reinterpret_cast<union sctp_notification *>(notification.data());
@@ -509,7 +516,7 @@ void SctpTransport::doRecv() {
 				}
 
 			} else {
-				// SCTP message
+				// SCTP 普通消息处理
 				mPartialMessage.insert(mPartialMessage.end(), buffer, buffer + len);
 				if (mPartialMessage.size() > mMaxMessageSize) {
 					PLOG_WARNING << "SCTP message is too large, truncating it";
@@ -517,7 +524,7 @@ void SctpTransport::doRecv() {
 				}
 
 				if (flags & MSG_EOR) {
-					// Message is complete, process it
+					// 消息接收完毕，交换数据并调用 processData 进行处理
 					binary message;
 					mPartialMessage.swap(message);
 					if (infotype != SCTP_RECVV_RCVINFO)
@@ -543,38 +550,42 @@ void SctpTransport::doFlush() {
 }
 
 void SctpTransport::enqueueRecv() {
+	// 如果接收任务已经在排队，则直接返回
 	if (mPendingRecvCount > 0)
 		return;
 
 	if (auto shared_this = weak_from_this().lock()) {
-		// This is called from the upcall callback, we must not release the shared ptr here
+		// 由 upcall 回调调用，确保 shared_ptr 不被释放
 		++mPendingRecvCount;
 		mProcessor.enqueue(&SctpTransport::doRecv, std::move(shared_this));
 	}
 }
 
 void SctpTransport::enqueueFlush() {
+	// 如果刷新任务已经在排队，则直接返回
 	if (mPendingFlushCount > 0)
 		return;
 
 	if (auto shared_this = weak_from_this().lock()) {
-		// This is called from the upcall callback, we must not release the shared ptr here
 		++mPendingFlushCount;
 		mProcessor.enqueue(&SctpTransport::doFlush, std::move(shared_this));
 	}
 }
 
 bool SctpTransport::trySendQueue() {
-	// Requires mSendMutex to be locked
+	// 要求 mSendMutex 已加锁
+	// 利用 peek() 得到队列头部的消息（但不移除）
 	while (auto next = mSendQueue.peek()) {
 		message_ptr message = std::move(*next);
 		if (!trySendMessage(message))
 			return false;
 
+		// 移除已成功发送的消息并更新缓冲量
 		mSendQueue.pop();
 		updateBufferedAmount(to_uint16(message->stream), -ptrdiff_t(message_size_func(message)));
 	}
 
+	// 如果发送队列不再运行且尚未触发关闭标志，则触发 SCTP shutdown
 	if (!mSendQueue.running() && !std::exchange(mSendShutdown, true)) {
 		PLOG_DEBUG << "SCTP shutdown";
 		if (usrsctp_shutdown(mSock, SHUT_WR)) {
@@ -592,11 +603,12 @@ bool SctpTransport::trySendQueue() {
 }
 
 bool SctpTransport::trySendMessage(message_ptr message) {
-	// Requires mSendMutex to be locked
+	// 要求 mSendMutex 已加锁
 	if (state() != State::Connected)
 		return false;
 
 	uint32_t ppid;
+	// 根据消息类型设置 PPID，用于 SCTP 分段传输和消息标识
 	switch (message->type) {
 	case Message::String:
 		ppid = !message->empty() ? PPID_STRING : PPID_STRING_EMPTY;
@@ -611,7 +623,7 @@ bool SctpTransport::trySendMessage(message_ptr message) {
 		sendReset(uint16_t(message->stream));
 		return true;
 	default:
-		// Ignore
+		// 其他类型消息忽略
 		return true;
 	}
 
@@ -620,17 +632,18 @@ bool SctpTransport::trySendMessage(message_ptr message) {
 	// TODO: Implement SCTP ndata specification draft when supported everywhere
 	// See https://datatracker.ietf.org/doc/html/draft-ietf-tsvwg-sctp-ndata-08
 
+	// 获取消息的可靠性信息，如果未设置则使用默认构造的 Reliability 对象
 	const Reliability reliability = message->reliability ? *message->reliability : Reliability();
 
 	struct sctp_sendv_spa spa = {};
 
-	// set sndinfo
+	// 设置发送信息（sndinfo）
 	spa.sendv_flags |= SCTP_SEND_SNDINFO_VALID;
 	spa.sendv_sndinfo.snd_sid = uint16_t(message->stream);
 	spa.sendv_sndinfo.snd_ppid = htonl(ppid);
-	spa.sendv_sndinfo.snd_flags |= SCTP_EOR; // implicit here
+	spa.sendv_sndinfo.snd_flags |= SCTP_EOR; // 表示消息结束
 
-	// set prinfo
+	// 设置传输策略信息（prinfo）
 	spa.sendv_flags |= SCTP_SEND_PRINFO_VALID;
 	if (reliability.unordered)
 		spa.sendv_sndinfo.snd_flags |= SCTP_UNORDERED;
@@ -644,10 +657,7 @@ bool SctpTransport::trySendMessage(message_ptr message) {
 		spa.sendv_prinfo.pr_policy = SCTP_PR_SCTP_RTX;
 		spa.sendv_prinfo.pr_value = to_uint32(*reliability.maxRetransmits);
 	}
-	// else {
-	// 	spa.sendv_prinfo.pr_policy = SCTP_PR_SCTP_NONE;
-	// }
-	// Deprecated
+	// 如果未设置，则根据 Deprecated 类型处理（目前已弃用）
 	else switch (reliability.typeDeprecated) {
 	case Reliability::Type::Rexmit:
 		spa.sendv_flags |= SCTP_SEND_PRINFO_VALID;
@@ -665,6 +675,7 @@ bool SctpTransport::trySendMessage(message_ptr message) {
 	}
 
 	ssize_t ret;
+	// 如果消息不为空，则发送消息数据，否则发送一个空字节
 	if (!message->empty()) {
 		ret = usrsctp_sendv(mSock, message->data(), message->size(), nullptr, 0, &spa, sizeof(spa),
 		                    SCTP_SENDV_SPA, 0);
@@ -684,14 +695,14 @@ bool SctpTransport::trySendMessage(message_ptr message) {
 	}
 
 	PLOG_VERBOSE << "SCTP sent size=" << message->size();
+	// 累加发送的字节数（针对 Binary 或 String 消息）
 	if (message->type == Message::Binary || message->type == Message::String)
 		mBytesSent += message->size();
 	return true;
 }
 
 void SctpTransport::updateBufferedAmount(uint16_t streamId, ptrdiff_t delta) {
-	// Requires mSendMutex to be locked
-
+	// 要求 mSendMutex 已加锁
 	if (delta == 0)
 		return;
 
@@ -702,7 +713,7 @@ void SctpTransport::updateBufferedAmount(uint16_t streamId, ptrdiff_t delta) {
 	else
 		it->second = amount;
 
-	// Synchronously call the buffered amount callback
+	// 同步调用回调函数通知上层更新当前流的缓冲量
 	triggerBufferedAmount(streamId, amount);
 }
 
@@ -715,13 +726,14 @@ void SctpTransport::triggerBufferedAmount(uint16_t streamId, size_t amount) {
 }
 
 void SctpTransport::sendReset(uint16_t streamId) {
-	// Requires mSendMutex to be locked
+	// 要求 mSendMutex 已加锁；仅在连接状态下发送 Reset
 	if (state() != State::Connected)
 		return;
 
 	PLOG_DEBUG << "SCTP resetting stream " << streamId;
 
 	using srs_t = struct sctp_reset_streams;
+	// 构造 Reset 消息，包含一个流 ID
 	const size_t len = sizeof(srs_t) + sizeof(uint16_t);
 	byte buffer[len] = {};
 	srs_t &srs = *reinterpret_cast<srs_t *>(buffer);
@@ -730,8 +742,9 @@ void SctpTransport::sendReset(uint16_t streamId) {
 	srs.srs_stream_list[0] = streamId;
 
 	mWritten = false;
+	// 发送 Reset 请求，等待确认 Reset 完成
 	if (usrsctp_setsockopt(mSock, IPPROTO_SCTP, SCTP_RESET_STREAMS, &srs, len) == 0) {
-		std::unique_lock lock(mWriteMutex); // locking before setsockopt might deadlock usrsctp...
+		std::unique_lock lock(mWriteMutex); // 注意：在 setsockopt 前加锁可能会导致 usrsctp 死锁
 		mWrittenCondition.wait_for(lock, 1000ms,
 		                           [&]() { return mWritten || state() != State::Connected; });
 	} else if (errno == EINVAL) {
@@ -745,6 +758,7 @@ void SctpTransport::handleUpcall() noexcept {
 	try {
 		PLOG_VERBOSE << "Handle upcall";
 
+		// 获取当前 SCTP socket 上的事件标志
 		int events = usrsctp_get_events(mSock);
 
 		if (events & SCTP_EVENT_READ)
@@ -764,9 +778,11 @@ int SctpTransport::handleWrite(byte *data, size_t len, uint8_t /*tos*/,
 		std::unique_lock lock(mWriteMutex);
 		PLOG_VERBOSE << "Handle write, len=" << len;
 
+		// 尝试将数据构造成消息后发送
 		if (!outgoing(make_message(data, data + len)))
 			return -1;
 
+		// 标记写操作成功，并通知等待线程
 		mWritten = true;
 		mWrittenOnce = true;
 		mWrittenCondition.notify_all();
@@ -775,17 +791,14 @@ int SctpTransport::handleWrite(byte *data, size_t len, uint8_t /*tos*/,
 		PLOG_ERROR << "SCTP write: " << e.what();
 		return -1;
 	}
-	return 0; // success
+	return 0; // 成功
 }
 
 void SctpTransport::processData(binary &&data, uint16_t sid, PayloadId ppid) {
 	PLOG_VERBOSE << "Process data, size=" << data.size();
 
-	// RFC 8831: The usage of the PPIDs "WebRTC String Partial" and "WebRTC Binary Partial" is
-	// deprecated. They were used for a PPID-based fragmentation and reassembly of user messages
-	// belonging to reliable and ordered data channels.
-	// See https://www.rfc-editor.org/rfc/rfc8831.html#section-6.6
-	// We handle those PPIDs at reception for compatibility reasons but shall never send them.
+	// 针对接收到的数据，根据 PPID 进行不同类型数据处理
+	// 注意：部分 PPID（如 PPID_STRING_PARTIAL/PPID_BINARY_PARTIAL）已弃用，仅为兼容性处理
 	switch (ppid) {
 	case PPID_CONTROL:
 		recv(make_message(std::move(data), Message::Control, sid));
@@ -840,7 +853,7 @@ void SctpTransport::processData(binary &&data, uint16_t sid, PayloadId ppid) {
 		break;
 
 	default:
-		// Unknown
+		// 如果收到未知的 PPID，则增加计数器并记录调试信息
 		COUNTER_UNKNOWN_PPID++;
 		PLOG_VERBOSE << "Unknown PPID: " << uint32_t(ppid);
 		return;
@@ -848,6 +861,7 @@ void SctpTransport::processData(binary &&data, uint16_t sid, PayloadId ppid) {
 }
 
 void SctpTransport::processNotification(const union sctp_notification *notify, size_t len) {
+	// 检查通知长度是否与 header 中指定的长度匹配
 	if (len != size_t(notify->sn_header.sn_length)) {
 		PLOG_WARNING << "Unexpected notification length, expected=" << notify->sn_header.sn_length
 		             << ", actual=" << len;
@@ -862,14 +876,17 @@ void SctpTransport::processNotification(const union sctp_notification *notify, s
 		PLOG_VERBOSE << "SCTP association change event";
 		const struct sctp_assoc_change &sac = notify->sn_assoc_change;
 		if (sac.sac_state == SCTP_COMM_UP) {
+			// 当 SCTP 连接建立成功时，记录协商的流数（入站和出站）
 			PLOG_DEBUG << "SCTP negotiated streams: incoming=" << sac.sac_inbound_streams
 			           << ", outgoing=" << sac.sac_outbound_streams;
+			// 保存实际协商的流数（取较小值）
 			mNegotiatedStreamsCount.emplace(
 			    std::min(sac.sac_inbound_streams, sac.sac_outbound_streams));
 
 			PLOG_INFO << "SCTP connected";
 			changeState(State::Connected);
 		} else {
+			// 如果连接断开，则更新状态为 Disconnected 或 Failed
 			if (state() == State::Connected) {
 				PLOG_INFO << "SCTP disconnected";
 				changeState(State::Disconnected);
@@ -885,13 +902,13 @@ void SctpTransport::processNotification(const union sctp_notification *notify, s
 
 	case SCTP_SENDER_DRY_EVENT: {
 		PLOG_VERBOSE << "SCTP sender dry event";
-		// It should not be necessary since the send callback should have been called already,
-		// but to be sure, let's try to send now.
+		// 当发送队列空闲时，尝试立即刷新发送
 		flush();
 		break;
 	}
 
 	case SCTP_STREAM_RESET_EVENT: {
+		// 处理 SCTP stream reset 事件（数据通道关闭）
 		const struct sctp_stream_reset_event &reset_event = notify->sn_strreset_event;
 		const int count = (reset_event.strreset_length - sizeof(reset_event)) / sizeof(uint16_t);
 		const uint16_t flags = reset_event.strreset_flags;
@@ -918,11 +935,7 @@ void SctpTransport::processNotification(const union sctp_notification *notify, s
 			PLOG_VERBOSE << "SCTP reset event, " << desc.str();
 		}
 
-		// RFC 8831 6.7. Closing a Data Channel
-		// If one side decides to close the data channel, it resets the corresponding outgoing
-		// stream. When the peer sees that an incoming stream was reset, it also resets its
-		// corresponding outgoing stream.
-		// See https://www.rfc-editor.org/rfc/rfc8831.html#section-6.7
+		// 根据 RFC 8831 6.7：当接收到流重置事件时，将通知应用数据通道关闭
 		if (flags & SCTP_STREAM_RESET_INCOMING_SSN) {
 			for (int i = 0; i < count; ++i) {
 				uint16_t streamId = reset_event.strreset_stream_list[i];
@@ -933,7 +946,7 @@ void SctpTransport::processNotification(const union sctp_notification *notify, s
 	}
 
 	default:
-		// Ignore
+		// 对于其他类型的通知，不处理
 		break;
 	}
 }
