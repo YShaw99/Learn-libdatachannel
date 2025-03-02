@@ -48,6 +48,7 @@ int main(int argc, char **argv) try {
 
 	rtc::InitLogger(rtc::LogLevel::Info);
 
+	// 配置ICE服务器，默认是google的 "stun:stun.l.google.com:19302"
 	rtc::Configuration config;
 	std::string stunServer = "";
 	if (params.noStun()) {
@@ -63,6 +64,7 @@ int main(int argc, char **argv) try {
 		config.iceServers.emplace_back(stunServer);
 	}
 
+	// 配置UDP多路复用（节省端口），后续研究一下
 	if (params.udpMux()) {
 		std::cout << "ICE UDP mux enabled" << std::endl;
 		config.enableIceUdpMux = true;
@@ -71,6 +73,7 @@ int main(int argc, char **argv) try {
 	localId = randomId(4);
 	std::cout << "The local ID is " << localId << std::endl;
 
+	//xy:2.创建WebSocket用于信令传输
 	auto ws = std::make_shared<rtc::WebSocket>();
 
 	std::promise<void> wsPromise;
@@ -90,11 +93,13 @@ int main(int argc, char **argv) try {
 
 	ws->onMessage([&config, wws = make_weak_ptr(ws)](auto data) {
 		// data holds either std::string or rtc::binary
+		//2.1 只处理文本消息（JSON格式）
 		if (!std::holds_alternative<std::string>(data))
 			return;
 
 		json message = json::parse(std::get<std::string>(data));
 
+		//2.2 消息必须包含id字段（对方节点ID
 		auto it = message.find("id");
 		if (it == message.end())
 			return;
@@ -107,26 +112,33 @@ int main(int argc, char **argv) try {
 
 		auto type = it->get<std::string>();
 
+		//2.3 查找或创建PeerConnection
 		shared_ptr<rtc::PeerConnection> pc;
 		if (auto jt = peerConnectionMap.find(id); jt != peerConnectionMap.end()) {
+			//2.4 已有连接 复用
 			pc = jt->second;
 		} else if (type == "offer") {
+			//2.4 收到Offer表示对方主动连接 新建
 			std::cout << "Answering to " + id << std::endl;
 			pc = createPeerConnection(config, wws, id);
 		} else {
 			return;
 		}
 
+		//2.5 处理不同类型信令
 		if (type == "offer" || type == "answer") {
+			//2.6 设置远端SDP描述
 			auto sdp = message["description"].get<std::string>();
 			pc->setRemoteDescription(rtc::Description(sdp, type));
 		} else if (type == "candidate") {
+			//2.6 添加远端ICE候选
 			auto sdp = message["candidate"].get<std::string>();
 			auto mid = message["mid"].get<std::string>();
 			pc->addRemoteCandidate(rtc::Candidate(sdp, mid));
 		}
 	});
 
+	// 连接WebSocket信令服务器
 	const std::string wsPrefix =
 	    params.webSocketServer().find("://") == std::string::npos ? "ws://" : "";
 	const std::string url = wsPrefix + params.webSocketServer() + ":" +
@@ -136,7 +148,7 @@ int main(int argc, char **argv) try {
 	ws->open(url);
 
 	std::cout << "Waiting for signaling to be connected..." << std::endl;
-	wsFuture.get();
+	wsFuture.get();// 直到ws onOpen为止才往下走
 
 	while (true) {
 		std::string id;
@@ -263,5 +275,5 @@ std::string randomId(size_t length) {
 	std::string id(length, '0');
 	std::uniform_int_distribution<int> uniform(0, int(characters.size() - 1));
 	std::generate(id.begin(), id.end(), [&]() { return characters.at(uniform(rng)); });
-	return id;
+	return "cccc";
 }

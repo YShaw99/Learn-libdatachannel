@@ -69,6 +69,7 @@ int main() {
 		media.addSSRC(ssrc, "video-send");
 		auto track = pc->addTrack(media);
 
+		//xy:1.
 		pc->setLocalDescription();
 
 		std::cout << "RTP video stream expected on localhost:6000" << std::endl;
@@ -86,6 +87,7 @@ int main() {
 
 		json j = json::parse(sdp);
 		rtc::Description answer(j["sdp"].get<std::string>(), j["type"].get<std::string>());
+		//xy:2.
 		pc->setRemoteDescription(answer);
 
 		// Receive from UDP
