@@ -32,6 +32,9 @@ using nlohmann::json;
 
 const int BUFFER_SIZE = 2048;
 
+// gstream->6000->media-sender->peer_connection->browser
+//外界(gstream)往6000端口发送视频流。然后C++通过socket从6000 recv数据buffer。
+//与浏览器建立pc连接（通过sdp），通过track直接发送给浏览器
 int main() {
 	try {
 		rtc::InitLogger(rtc::LogLevel::Debug);

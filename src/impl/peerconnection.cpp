@@ -212,6 +212,7 @@ shared_ptr<IceTransport> PeerConnection::initIceTransport() {
 			    if (!shared_this)
 				    return;
 			    switch (transportState) {
+			    	std::cout << "IceTransport::State:: change to " << (int)transportState << std::endl;
 			    case IceTransport::State::Connecting:
 				    // 2.1.1 更新 ICE 状态为 Checking，同时将整体状态设为 Connecting
 				    changeIceState(IceState::Checking);
@@ -348,6 +349,7 @@ shared_ptr<DtlsTransport> PeerConnection::initDtlsTransport() {
 			transport = std::make_shared<DtlsSrtpTransport>(
 			    lower, certificate, config.mtu, fingerprintAlgorithm, verifierCallback,
 			    weak_bind(&PeerConnection::forwardMedia, this, _1), dtlsStateChangeCallback);
+			printf("xy: pc: %p, create transport: %p\n", this, transport.get());
 #else
 			PLOG_WARNING << "Ignoring media support (not compiled with media support)";
 #endif

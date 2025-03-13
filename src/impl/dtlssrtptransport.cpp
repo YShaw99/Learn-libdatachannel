@@ -66,7 +66,7 @@ DtlsSrtpTransport::DtlsSrtpTransport(shared_ptr<IceTransport> lower,
                     std::move(stateChangeCallback)),
       mSrtpRecvCallback(std::move(srtpRecvCallback)) { // distinct from Transport recv callback
 
-	PLOG_DEBUG << "Initializing DTLS-SRTP transport";
+	std::cout << "[DtlsSrtpTransport] Initializing DTLS-SRTP transport" << ", this:" << this << std::endl;
 
 	if (srtp_err_status_t err = srtp_create(&mSrtpIn, nullptr)) {
 		throw std::runtime_error("srtp_create failed, status=" + to_string(static_cast<int>(err)));
@@ -90,12 +90,12 @@ bool DtlsSrtpTransport::sendMedia(message_ptr message) {
 		return false;
 
 	if (!mInitDone) {
-		PLOG_ERROR << "SRTP media sent before keys are derived";
+		std::cout << "[DtlsSrtpTransport] SRTP media sent before keys are derived" << ", this:" << this << std::endl;
 		return false;
 	}
 
 	int size = int(message->size());
-	PLOG_VERBOSE << "Send size=" << size;
+	std::cout << "[DtlsSrtpTransport] Send size=" << size << ", this:" << this << std::endl;
 
 	// The RTP header has a minimum size of 12 bytes
 	// An RTCP packet can have a minimum size of 8 bytes
@@ -115,7 +115,7 @@ bool DtlsSrtpTransport::sendMedia(message_ptr message) {
 				throw std::runtime_error("SRTCP protect error, status=" +
 				                         to_string(static_cast<int>(err)));
 		}
-		PLOG_VERBOSE << "Protected SRTCP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Protected SRTCP packet, size=" << size << ", this:" << this << std::endl;
 
 	} else {
 		if (srtp_err_status_t err = srtp_protect(mSrtpOut, message->data(), &size)) {
@@ -125,7 +125,7 @@ bool DtlsSrtpTransport::sendMedia(message_ptr message) {
 				throw std::runtime_error("SRTP protect error, status=" +
 				                         to_string(static_cast<int>(err)));
 		}
-		PLOG_VERBOSE << "Protected SRTP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Protected SRTP packet, size=" << size << ", this:" << this << std::endl;
 	}
 
 	message->resize(size);
@@ -145,50 +145,50 @@ void DtlsSrtpTransport::recvMedia(message_ptr message) {
 	int size = int(message->size());
 	if (size < 8) {
 		COUNTER_MEDIA_TRUNCATED++;
-		PLOG_VERBOSE << "Incoming SRTP/SRTCP packet too short, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Incoming SRTP/SRTCP packet too short, size=" << size << ", this:" << this << std::endl;
 		return;
 	}
 
 	uint8_t value2 = to_integer<uint8_t>(*(message->begin() + 1)) & 0x7F;
-	PLOG_VERBOSE << "Demultiplexing SRTCP and SRTP with RTP payload type, value="
-	             << unsigned(value2);
+	std::cout << "[DtlsSrtpTransport] Demultiplexing SRTCP and SRTP with RTP payload type, value="
+	             << unsigned(value2) << ", this:" << this << std::endl;
 
 	if (IsRtcp(*message)) { // Demultiplex RTCP and RTP using payload type
-		PLOG_VERBOSE << "Incoming SRTCP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Incoming SRTCP packet, size=" << size << ", this:" << this << std::endl;
 		if (srtp_err_status_t err = srtp_unprotect_rtcp(mSrtpIn, message->data(), &size)) {
 			if (err == srtp_err_status_replay_fail) {
-				PLOG_VERBOSE << "Incoming SRTCP packet is a replay";
+				std::cout << "[DtlsSrtpTransport] Incoming SRTCP packet is a replay" << ", this:" << this << std::endl;
 				COUNTER_SRTCP_REPLAY++;
 			} else if (err == srtp_err_status_auth_fail) {
-				PLOG_DEBUG << "Incoming SRTCP packet failed authentication check";
+				std::cout << "[DtlsSrtpTransport] Incoming SRTCP packet failed authentication check" << ", this:" << this << std::endl;
 				COUNTER_SRTCP_AUTH_FAIL++;
 			} else {
-				PLOG_DEBUG << "SRTCP unprotect error, status=" << err;
+				std::cout << "[DtlsSrtpTransport] SRTCP unprotect error, status=" << err << ", this:" << this << std::endl;
 				COUNTER_SRTCP_FAIL++;
 			}
 
 			return;
 		}
-		PLOG_VERBOSE << "Unprotected SRTCP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Unprotected SRTCP packet, size=" << size << ", this:" << this << std::endl;
 		message->type = Message::Control;
 		message->stream = reinterpret_cast<RtcpSr *>(message->data())->senderSSRC();
 
 	} else {
-		PLOG_VERBOSE << "Incoming SRTP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Incoming SRTP packet, size=" << size << ", this:" << this << std::endl;
 		if (srtp_err_status_t err = srtp_unprotect(mSrtpIn, message->data(), &size)) {
 			if (err == srtp_err_status_replay_fail) {
-				PLOG_VERBOSE << "Incoming SRTP packet is a replay";
+				std::cout << "[DtlsSrtpTransport] Incoming SRTP packet is a replay" << ", this:" << this << std::endl;
 				COUNTER_SRTP_REPLAY++;
 			} else if (err == srtp_err_status_auth_fail) {
-				PLOG_DEBUG << "Incoming SRTP packet failed authentication check";
+				std::cout << "[DtlsSrtpTransport] Incoming SRTP packet failed authentication check" << ", this:" << this << std::endl;
 				COUNTER_SRTP_AUTH_FAIL++;
 			} else {
-				PLOG_DEBUG << "SRTP unprotect error, status=" << err;
+				std::cout << "[DtlsSrtpTransport] SRTP unprotect error, status=" << err << ", this:" << this << std::endl;
 				COUNTER_SRTP_FAIL++;
 			}
 			return;
 		}
-		PLOG_VERBOSE << "Unprotected SRTP packet, size=" << size;
+		std::cout << "[DtlsSrtpTransport] Unprotected SRTP packet, size=" << size << ", this:" << this << std::endl;
 		message->type = Message::Binary;
 		message->stream = reinterpret_cast<RtpHeader *>(message->data())->ssrc();
 	}
@@ -212,21 +212,23 @@ bool DtlsSrtpTransport::demuxMessage(message_ptr message) {
 	// of the packet. [...] If the value is in between 128 and 191 (inclusive), then the packet is
 	// RTP (or RTCP [...]). If the value is between 20 and 63 (inclusive), the packet is DTLS.
 	uint8_t value1 = to_integer<uint8_t>(*message->begin());
-	PLOG_VERBOSE << "Demultiplexing DTLS and SRTP/SRTCP with first byte, value="
-	             << unsigned(value1);
+	std::cout << "[DtlsSrtpTransport] Demultiplexing DTLS and SRTP/SRTCP with first byte, value="
+	             << unsigned(value1) << ", this:" << this << std::endl;
 
 	if (value1 >= 20 && value1 <= 63) {
-		PLOG_VERBOSE << "Incoming DTLS packet, size=" << message->size();
+		std::cout << "[DtlsSrtpTransport] Incoming DTLS packet, size=" << message->size() << ", this:" << this << std::endl;
 		return false;
 
-	} else if (value1 >= 128 && value1 <= 191) {
+	} else if (value1 >= 128 && value1 <= 191 || value1 == 0) {
+		std::cout << "[DtlsSrtpTransport] type, value=" << unsigned(value1)
+				   << ", size=" << message->size() << ", this:" << this << std::endl;
 		recvMedia(std::move(message));
 		return true;
 
 	} else {
 		COUNTER_UNKNOWN_PACKET_TYPE++;
-		PLOG_DEBUG << "Unknown packet type, value=" << unsigned(value1)
-		           << ", size=" << message->size();
+		std::cout << "[DtlsSrtpTransport] Unknown packet type, value=" << unsigned(value1)
+		           << ", size=" << message->size() << ", this:" << this << std::endl;
 		return true;
 	}
 }
@@ -306,7 +308,7 @@ void DtlsSrtpTransport::postHandshake() {
 		throw std::runtime_error("Failed to get SRTP profile: " +
 		                         openssl::error_string(ERR_get_error()));
 
-	PLOG_DEBUG << "SRTP profile is: " << profile->name;
+	std::cout << "[DtlsSrtpTransport] SRTP profile is: " << profile->name << ", this:" << this << std::endl;
 
 	const auto [srtpProfile, keySize, saltSize] = getProfileParamsFromName(profile->name);
 	const size_t keySizeWithSalt = keySize + saltSize;

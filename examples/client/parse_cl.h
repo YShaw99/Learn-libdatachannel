@@ -39,6 +39,7 @@ private:
   std::string _s;
   int _t;
   std::string _w;
+  std::string _l;
   int _x;
   bool _h;
 
@@ -62,6 +63,7 @@ public:
   std::string stunServer () const { return _s; }
   int stunPort () const { return _t; }
   std::string webSocketServer () const { return _w; }
+  std::string localId () const { return _l; }
   int webSocketPort () const { return _x; }
   bool h () const { return _h; }
 };

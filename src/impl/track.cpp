@@ -142,6 +142,7 @@ void Track::incoming(message_ptr message) {
 
 	message_vector messages{std::move(message)};
 	if (auto handler = getMediaHandler()) {
+		//如果有setMediaHandler，会在这里消费。类似于一个Filter。
 		try {
 			handler->incomingChain(messages, [this, weak_this = weak_from_this()](message_ptr m) {
 				if (auto locked = weak_this.lock()) {

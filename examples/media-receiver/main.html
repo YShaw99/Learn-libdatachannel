@@ -6,20 +6,28 @@
 </head>
 <body>
 
+<!-- 页面提示用户输入接收端应用提供的 offer -->
 <p>Please enter the offer provided to you by the receiver application: </p>
+<!-- 文本区域用于输入和显示 SDP 信息 -->
 <textarea cols="80" rows="25"></textarea>
+<!-- 提交按钮，用于触发 SDP 处理逻辑 -->
 <button>Submit</button>
 
 <script>
+    // 1. 为按钮添加点击事件监听器
     document.querySelector('button').addEventListener('click',  async () => {
+        // 2. 解析用户输入的 offer
         const offer = JSON.parse(document.querySelector('textarea').value);
+
+        // 3. 创建 RTCPeerConnection 对象，配置为最大 bundle 策略
         const pc = new RTCPeerConnection({
-            // Recommended for libdatachannel
-            bundlePolicy: 'max-bundle',
+            bundlePolicy: 'max-bundle', // 推荐用于 libdatachannel
         });
 
+        // 4. 监听 ICE 候选收集状态变化事件
         pc.onicegatheringstatechange = (state) => {
             if (pc.iceGatheringState === 'complete') {
+                // 4.1 当 ICE 候选收集完成时，生成并显示 answer
                 // We only want to provide an answer once all of our candidates have been added to the SDP.
                 const answer = pc.localDescription;
                 document.querySelector('textarea').value = JSON.stringify({"type": answer.type, sdp: answer.sdp});
@@ -28,16 +36,21 @@
             }
         }
 
+        // 5. 设置远程描述为接收到的 offer
         await pc.setRemoteDescription(offer);
 
+        // 6. 获取用户媒体（摄像头视频）
         const media = await navigator.mediaDevices.getUserMedia({
             video: {
-                width: 1280,
-                height: 720
+                width: 1280, // 视频宽度
+                height: 720  // 视频高度
             }
         });
+
+        // 7. 将媒体轨道添加到 PeerConnection 中
         media.getTracks().forEach(track => pc.addTrack(track, media));
 
+        // 8. 创建 answer 并设置为本地描述
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
     })

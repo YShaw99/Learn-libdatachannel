@@ -13,6 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <unistd.h>
 
 using namespace std::chrono_literals;
 using std::shared_ptr;
@@ -66,6 +67,7 @@ int main(int argc, char **argv) {
 	std::this_thread::sleep_for(1s);
 
 	bool exit = false;
+	bool connected = false;
 	while (!exit) {
 		std::cout
 		    << std::endl
@@ -82,6 +84,9 @@ int main(int argc, char **argv) {
 		int command = -1;
 		std::cin >> command;
 		std::cin.ignore();
+		if(command==-1 && connected) {
+			command=3;
+		}
 
 		switch (command) {
 		case 0: {
@@ -97,6 +102,9 @@ int main(int argc, char **argv) {
 				sdp += "\r\n";
 			}
 			pc->setRemoteDescription(sdp);
+
+			std::cout << "set Description done 👍" << std::endl;
+
 			break;
 		}
 		case 2: {
@@ -105,6 +113,7 @@ int main(int argc, char **argv) {
 			std::string candidate;
 			getline(std::cin, candidate);
 			pc->addRemoteCandidate(candidate);
+			connected=true;
 			break;
 		}
 		case 3: {
@@ -116,7 +125,12 @@ int main(int argc, char **argv) {
 			std::cout << "[Message]: ";
 			std::string message;
 			getline(std::cin, message);
+			if (message.empty()) {
+				static int index = 0;
+				message = std::to_string(index++);
+			}
 			dc->send(message);
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
 			break;
 		}
 		case 4: {

@@ -48,6 +48,7 @@ Cmdline::Cmdline (int argc, char *argv[]) // ISO C++17 not allowed: throw (std::
     {"stunServer", required_argument, NULL, 's'},
     {"stunPort", required_argument, NULL, 't'},
     {"webSocketServer", required_argument, NULL, 'w'},
+{"localId", required_argument, NULL, 'l'},
     {"webSocketPort", required_argument, NULL, 'x'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -65,7 +66,7 @@ Cmdline::Cmdline (int argc, char *argv[]) // ISO C++17 not allowed: throw (std::
   _h = false;
 
   optind = 0;
-  while ((c = getopt_long (argc, argv, "s:t:w:x:enmhv", long_options, &optind)) != - 1)
+  while ((c = getopt_long (argc, argv, "s:t:w:l:x:enmhv", long_options, &optind)) != - 1)
     {
       switch (c)
         {
@@ -100,6 +101,10 @@ Cmdline::Cmdline (int argc, char *argv[]) // ISO C++17 not allowed: throw (std::
         case 'w':
           _w = optarg;
           break;
+
+		case 'l':
+      		_l = optarg;
+      		break;
 
         case 'x':
           _x = atoi (optarg);

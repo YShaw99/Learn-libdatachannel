@@ -1,0 +1,28 @@
+/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja -G Ninja -S /Users/shaw/Code/libdatachannel -B /Users/shaw/Code/libdatachannel/cmake-build-debug
+CMake Deprecation Warning at deps/plog/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value or use a ...<max> suffix to tell
+  CMake that the project does not need compatibility with older versions.
+
+
+CMake Deprecation Warning at deps/usrsctp/CMakeLists.txt:33 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value or use a ...<max> suffix to tell
+  CMake that the project does not need compatibility with older versions.
+
+
+-- have_sa_len
+-- have_sin_len
+-- have_sin6_len
+-- HAVE_SCONN_LEN
+-- Compiler flags (CMAKE_C_FLAGS):  -std=c99 -pedantic -Wall -Wextra -Wfloat-equal -Wshadow -Wpointer-arith -Wunreachable-code -Winit-self -Wno-unused-function -Wno-unused-parameter -Wno-unreachable-code -Wstrict-prototypes
+-- Found OpenSSL: /opt/homebrew/Cellar/openssl@3/3.4.0/lib/libcrypto.dylib (found suitable version "3.4.0", minimum required is "1.1.0")  
+-- Found OpenSSL: /opt/homebrew/Cellar/openssl@3/3.4.0/lib/libcrypto.dylib (found version "3.4.0")  
+-- Using the multi-header code from /Users/shaw/Code/libdatachannel/deps/json/include/
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/shaw/Code/libdatachannel/cmake-build-debug

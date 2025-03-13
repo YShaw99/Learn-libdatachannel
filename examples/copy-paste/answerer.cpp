@@ -92,7 +92,9 @@ int main(int argc, char **argv) {
 				sdp += line;
 				sdp += "\r\n";
 			}
-			std::cout << sdp;
+
+			std::cout << "set Description done 👍" << std::endl;
+
 			pc->setRemoteDescription(sdp);
 			break;
 		}

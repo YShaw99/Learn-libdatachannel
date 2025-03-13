@@ -1,0 +1,3 @@
+/Users/shaw/Code/libdatachannel/examples/client/cmake-build-debug/CMakeFiles/datachannel-client.dir
+/Users/shaw/Code/libdatachannel/examples/client/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/shaw/Code/libdatachannel/examples/client/cmake-build-debug/CMakeFiles/rebuild_cache.dir

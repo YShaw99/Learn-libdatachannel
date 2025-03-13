@@ -1,0 +1,3 @@
+/Users/shaw/Code/libdatachannel/examples/media-receiver/CMakeFiles/datachannel-media-receiver.dir
+/Users/shaw/Code/libdatachannel/examples/media-receiver/CMakeFiles/edit_cache.dir
+/Users/shaw/Code/libdatachannel/examples/media-receiver/CMakeFiles/rebuild_cache.dir

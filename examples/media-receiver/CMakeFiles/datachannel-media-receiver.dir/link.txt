@@ -1,0 +1,1 @@
+/Library/Developer/CommandLineTools/usr/bin/c++  -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk -Wl,-search_paths_first -Wl,-headerpad_max_install_names "CMakeFiles/datachannel-media-receiver.dir/main.cpp.o" -o media-receiver  -lLibDataChannel::LibDataChannel -lnlohmann_json::nlohmann_json

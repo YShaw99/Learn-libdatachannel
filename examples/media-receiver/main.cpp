@@ -53,6 +53,10 @@ int main() {
 			}
 		});
 
+		pc->onLocalCandidate([pc](rtc::Candidate candidate) {
+			std::cout << "Local candidate: " << candidate << std::endl;
+		});
+
 		// 5. 创建 UDP 套接字，用于接收 RTP 数据包
 		SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
 		sockaddr_in addr = {};
@@ -76,6 +80,8 @@ int main() {
 		track->onMessage(
 		    [session, sock, addr](rtc::binary message) {
 			    // 9.1 将接收到的 RTP 数据包通过 UDP 发送到指定地址
+			    std::cout << "sendto localhost:5000: " << int(message.size()) << std::endl;
+
 			    sendto(sock, reinterpret_cast<const char *>(message.data()), int(message.size()), 0,
 			           reinterpret_cast<const struct sockaddr *>(&addr), sizeof(addr));
 		    },
@@ -96,13 +102,69 @@ int main() {
 		rtc::Description answer(j["sdp"].get<std::string>(), j["type"].get<std::string>());
 		pc->setRemoteDescription(answer);
 
+
+		// std::string offer_str;
+		// std::string temp;
+		//
+		// do {
+		// 	std::getline(std::cin, temp);  // 使用 getline 读取整行输入
+		// 	offer_str += temp;  // 将输入累加到 sdp
+		// 	// std::cout << "temp 输入为: " << temp << "\nsdp: " << offer_str << std::endl;
+		// } while (!temp.empty());  // 当输入为空时停止循环
+		// // std::getline(std::cin, sdp);
+		//
+		// // pc->setRemoteDescription({offer_str, "offer"});
+		// json j = json::parse(offer_str);
+		// rtc::Description offer(j["sdp"].get<std::string>(), j["type"].get<std::string>());
+		// pc->setRemoteDescription(offer);
+		//
+		//
+		// temp = "";
+		// do {
+		// 	std::getline(std::cin, temp);  // 使用 getline 读取整行输入
+		// 	offer_str += temp;  // 将输入累加到 sdp
+		// 	// std::cout << "temp 输入为: " << temp << "\nsdp: " << offer_str << std::endl;
+		// } while (!temp.empty());  // 当输入为空时停止循环
+
 		// 13. 等待用户输入以退出程序
 		std::cout << "Press any key to exit." << std::endl;
 		char dummy;
 		std::cin >> dummy;
 
+		//浏览器或取摄像头数据，发送给pc。
+		//C++的pc接收视频流，然后通过socket发送给5000端口。
+		//虽然是track的接受者，确实pc的发起者，所以需要将got answer改成got offer+return answer
 	} catch (const std::exception &e) {
 		// 14. 捕获并输出异常信息
 		std::cerr << "Error: " << e.what() << std::endl;
 	}
 }
+
+/*
+ *
+*
+// std::string sdp;
+// std::getline(std::cin, sdp);
+
+// 12. 解析浏览器的 SDP 应答并设置为远程描述
+// std::cout << "Got answer" << sdp << std::endl;
+// json j = json::parse(sdp);
+// rtc::Description answer(j["sdp"].get<std::string>(), j["type"].get<std::string>());
+// pc->setRemoteDescription(answer);
+
+
+std::string offer_str;
+std::string temp;
+
+do {
+std::getline(std::cin, temp);  // 使用 getline 读取整行输入
+offer_str += temp;  // 将输入累加到 sdp
+// std::cout << "temp 输入为: " << temp << "\nsdp: " << offer_str << std::endl;
+} while (!temp.empty());  // 当输入为空时停止循环
+// std::getline(std::cin, sdp);
+
+// pc->setRemoteDescription({offer_str, "offer"});
+json j = json::parse(offer_str);
+rtc::Description offer(j["sdp"].get<std::string>(), j["type"].get<std::string>());
+pc->setRemoteDescription(offer);
+*/

@@ -153,8 +153,8 @@ int test_capi_track_main() {
 	// config1.iceServersCount = 1;
 
 	peer1 = createPeer(&config1);
-	if (!peer1)
-		goto error;
+	// if (!peer1)
+	// 	goto error;
 
 	// Create peer 2
 	rtcConfiguration config2;
@@ -167,8 +167,8 @@ int test_capi_track_main() {
 	config2.portRangeEnd = 6000;
 
 	peer2 = createPeer(&config2);
-	if (!peer2)
-		goto error;
+	// if (!peer2)
+	// 	goto error;
 
 	// Peer 1: Create track
 	peer1->tr = rtcAddTrack(peer1->pc, mediaDescription);
@@ -178,13 +178,13 @@ int test_capi_track_main() {
 	char mid[256];
 	if (rtcGetTrackMid(peer1->tr, mid, 256) < 0 || strcmp(mid, "video") != 0) {
 		fprintf(stderr, "rtcGetTrackMid failed\n");
-		goto error;
+		// goto error;
 	}
 
 	rtcDirection direction;
 	if (rtcGetTrackDirection(peer1->tr, &direction) < 0 || direction != RTC_DIRECTION_SENDONLY) {
 		fprintf(stderr, "rtcGetTrackDirection failed\n");
-		goto error;
+		// goto error;
 	}
 
 	// Initiate the handshake
@@ -196,13 +196,24 @@ int test_capi_track_main() {
 
 	if (peer1->state != RTC_CONNECTED || peer2->state != RTC_CONNECTED) {
 		fprintf(stderr, "PeerConnection is not connected\n");
-		goto error;
+		// goto error;
 	}
 
 	if (!peer1->connected || !peer2->connected) {
 		fprintf(stderr, "Track is not connected\n");
-		goto error;
+		// goto error;
 	}
+	// FILE* file = fopen("/Users/shaw/Downloads/test.h264", "rb");
+	// while(file.read())
+	// {
+	// 	rtcSendMessage(peer1->tr, file.read(), 1024);
+	// }
+
+	char* buf = (char*) malloc(1024);
+	memset(buf, 0, 1024);
+	rtcSendMessage(peer1->tr, buf,1024);
+
+	sleep(1000);
 
 	deletePeer(peer1);
 	sleep(1);

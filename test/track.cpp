@@ -79,10 +79,28 @@ void test_track() {
 			return;
 		}
 
-		t->onOpen([mid]() { cout << "Track 2: Track with mid \"" << mid << "\" is open" << endl; });
+		t->onOpen([mid]() {
+			cout << "Track 2: Track with mid \"" << mid << "\" is open" << endl;
+		});
 
 		t->onClosed(
-		    [mid]() { cout << "Track 2: Track with mid \"" << mid << "\" is closed" << endl; });
+		    [mid]() {
+			    cout << "Track 2: Track with mid \"" << mid << "\" is closed" << endl;
+		    });
+
+		t->onFrame([](binary, FrameInfo
+			) {
+			cout << "Track 2: onFrame" << endl;
+		});
+
+		t->onMessage([](message_variant mv) {
+			cout << "Track 2: onMessage BinaryCallback" << endl;
+		},
+		[](message_variant mv) {
+			cout << "Track 2: onMessage stringCallback" << endl;
+		});
+		// auto session = std::make_shared<rtc::RtcpReceivingSession>();
+		// t->setMediaHandler(session);
 
 		std::atomic_store(&t2, t);
 	});
@@ -101,11 +119,17 @@ void test_track() {
 		cout << mediaSdp2 << endl;
 		throw runtime_error("Media description parsing test failed");
 	}
+	// this_thread::sleep_for(10s);
 
 	auto t1 = pc1.addTrack(media);
 
+	printf("xy: pc1: %p\n", &pc1);
+	printf("xy: pc2: %p\n", &pc2);
+	printf("xy: tr1: %p\n", &t1);
+	printf("xy: tr2: %p\n", &t2);
+	// this_thread::sleep_for(10s);
 	pc1.setLocalDescription();
-
+	// this_thread::sleep_for(10s);
 	int attempts = 10;
 	shared_ptr<Track> at2;
 	while ((!(at2 = std::atomic_load(&t2)) || !at2->isOpen() || !t1->isOpen()) && attempts--)
@@ -118,22 +142,27 @@ void test_track() {
 	if (!at2 || !at2->isOpen() || !t1->isOpen())
 		throw runtime_error("Track is not open");
 
+	const size_t bufferSize = 3000;
+	byte buffer[bufferSize];
+
+	t1->send(buffer, sizeof(buffer));//会触发SRTP PROTECTED的错误日志
 	// Test renegotiation
-	newTrackMid = "added";
+	// newTrackMid = "added";
+	//
+	// Description::Video media2(newTrackMid, Description::Direction::SendOnly);
+	// media2.addH264Codec(96);
+	// media2.setBitrate(3000);
+	// media2.addSSRC(2468, "video-send");
+	//
+	// // NOTE: Overwriting the old shared_ptr for t1 will cause it's respective
+	// //       track to be dropped (so it's SSRCs won't be on the description next time)
+	// t1 = pc1.addTrack(media2);
+	//
+	// pc1.setLocalDescription();
 
-	Description::Video media2(newTrackMid, Description::Direction::SendOnly);
-	media2.addH264Codec(96);
-	media2.setBitrate(3000);
-	media2.addSSRC(2468, "video-send");
-
-	// NOTE: Overwriting the old shared_ptr for t1 will cause it's respective
-	//       track to be dropped (so it's SSRCs won't be on the description next time)
-	t1 = pc1.addTrack(media2);
-
-	pc1.setLocalDescription();
-
+	this_thread::sleep_for(1000s);
 	attempts = 10;
-	t2.reset();
+	// t2.reset();
 	while ((!(at2 = std::atomic_load(&t2)) || !at2->isOpen() || !t1->isOpen()) && attempts--)
 		this_thread::sleep_for(1s);
 
@@ -141,6 +170,8 @@ void test_track() {
 		throw runtime_error("Renegotiated track is not open");
 
 	// TODO: Test sending RTP packets in track
+	t1->send(buffer, sizeof(buffer));//会触发SRTP PROTECTED的错误日志
+
 
 	// Delay close of peer 2 to check closing works properly
 	pc1.close();
